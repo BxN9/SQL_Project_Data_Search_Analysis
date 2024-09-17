@@ -1,0 +1,735 @@
+
+---------------------------------------------------------------------------
+--                       PROBLEM 8 
+---------------------------------------------------------------------------
+
+/*
+
+Q3
+
+I only want to look at job postings from the first quarter that have a salary greater than $70k. 
+
+-  Note:
+    - Alias is necessary because it will return an error without it. It’s needed for subqueries in the FROM clause.
+- Combine job posting tables from the first quarter of 2023 (Jan-Mar)
+- Gets job postings with an average yearly salary > $70,000 from the first quarter of 2023 (Jan-Mar)
+- Why? Look at job postings for the first quarter of 2023 (Jan-Mar) that has a salary > $70,000
+*/
+
+SELECT job_title_short,
+        salary_year_avg,
+        job_via,
+        job_posted_date :: DATE
+FROM (
+    SELECT * FROM january_jobs
+    UNION ALL 
+    SELECT * FROM february_jobs
+    UNION ALL 
+    SELECT * FROM march_jobs
+) AS quarter_one_jobs_postings
+WHERE salary_year_avg > 70000 
+ORDER BY 
+    salary_year_avg DESC
+LIMIT 100
+
+
+--------------------------------------------------------------------------
+--                       UNIONS
+---------------------------------------------------------------------------
+
+/*
+
+Q3
+
+Analyze the monthly demand for skills by counting the number of job postings for each skill in the first quarter
+(January to March), utilizing data from separate tables for each month. 
+Ensure to include skills from all job postings across these months. 
+The tables for the first quarter job postings were created in the Advanced Section - Practice Problem 6.
+*/
+
+-- CTE for combining job postings from January, February, and March
+WITH combined_job_postings AS (
+  SELECT job_id, job_posted_date
+  FROM january_jobs
+  UNION ALL
+  SELECT job_id, job_posted_date
+  FROM february_jobs
+  UNION ALL
+  SELECT job_id, job_posted_date
+  FROM march_jobs
+),
+-- CTE for calculating monthly skill demand based on the combined postings
+monthly_skill_demand AS (
+  SELECT
+    skills_dim.skills,  
+    EXTRACT(YEAR FROM combined_job_postings.job_posted_date) AS year,  
+    EXTRACT(MONTH FROM combined_job_postings.job_posted_date) AS month,  
+    COUNT(combined_job_postings.job_id) AS postings_count 
+  FROM
+    combined_job_postings
+	  INNER JOIN skills_job_dim ON combined_job_postings.job_id = skills_job_dim.job_id  
+	  INNER JOIN skills_dim ON skills_job_dim.skill_id = skills_dim.skill_id  
+  GROUP BY
+    skills_dim.skills, year, month
+)
+-- Main query to display the demand for each skill during the first quarter
+SELECT
+  skills,  
+  year,  
+  month,  
+  postings_count 
+FROM
+  monthly_skill_demand
+ORDER BY
+  skills, year, month;  
+
+----------------------------------------------------------------------
+/*
+
+Q2
+
+Retrieve the job id, job title short, job location, job via, skill and skill type 
+for each job posting from the first quarter (January to March). 
+Using a subquery to combine job postings from the first quarter 
+(these tables were created in the Advanced Section - Practice Problem 6)
+Only include postings with an average yearly salary greater than $70,000.
+*/
+
+SELECT 
+    job_postings_quarter.job_id,
+    job_title_short,
+    job_location,
+    job_via,
+    skills_dim.skills,
+    skills_dim.type
+
+FROM(
+        SELECT *
+        FROM january_jobs
+
+        UNION ALL 
+
+        SELECT *
+        FROM february_jobs
+
+        UNION ALL
+
+        SELECT *
+        FROM march_jobs
+    ) AS job_postings_quarter
+
+    LEFT JOIN skills_job_dim ON skills_job_dim.job_id = job_postings_quarter.job_id
+    LEFT JOIN skills_dim ON skills_dim.skill_id = skills_job_dim.skill_id
+    
+WHERE 
+    salary_year_avg > 70000
+
+ORDER BY
+    job_id
+LIMIT 100
+
+
+
+-----------------------------------------------------------------
+
+/*
+
+Q1
+
+-Create a unified query that categorizes job postings into two groups: 
+those with salary information (salary_year_avg or salary_hour_avg is not null) and those without it. 
+Each job posting should be listed with its job_id, job_title, 
+and an indicator of whether salary information is provided.
+
+*/
+
+SELECT 
+    job_id,
+    job_title_short,
+    salary_hour_avg,
+    salary_year_avg,
+    CASE
+        WHEN salary_hour_avg IS NULL THEN 'yearly'
+        ELSE 'Hourly'
+    END AS indicator
+FROM 
+    job_postings_fact
+WHERE 
+    salary_year_avg IS NOT NULL  OR
+    salary_hour_avg IS NOT NULL
+
+UNION ALL
+
+SELECT 
+    job_id,
+    job_title_short,
+    salary_hour_avg,
+    salary_year_avg,
+    'No Data' AS indicator
+FROM 
+job_postings_fact
+WHERE 
+    salary_year_avg IS  NULL  AND
+    salary_hour_avg IS  NULL
+
+
+
+---------------------------------------------------------------------------
+--                       PROBLEM 7
+---------------------------------------------------------------------------
+
+/*
+- Find the count of the number of remote job postings per skill
+    - Display the top 5 skills in descending order by their demand in remote jobs
+    - Include skill ID, name, and count of postings requiring the skill
+    - Why? Identify the top 5 skills in demand for remote jobs
+*/
+
+---- CTE 1  - remote Jobs skills 
+WITH remote_jobs_skill AS (
+    SELECT
+        skills_to_job.skill_id,
+        COUNT(*) AS skill_count
+    FROM
+        skills_job_dim AS skills_to_job
+        INNER JOIN job_postings_fact AS job_postings ON skills_to_job.job_id = job_postings.job_id
+    WHERE   
+        job_postings.job_work_from_home = TRUE
+     AND job_title_short = 'Data Analyst'
+    GROUP BY    
+        skills_to_job.skill_id
+)
+
+SELECT 
+    skill.skill_id,
+    skill.skills,
+    skill_count
+FROM remote_jobs_skill
+INNER JOIN skills_dim AS skill ON skill.skill_id = remote_jobs_skill.skill_id
+ORDER BY
+skill_count DESC
+LIMIT 5
+
+
+---------------------------------------------------------------------------
+--                       CTEs
+---------------------------------------------------------------------------
+
+/*
+
+Q3 
+
+
+Calculate the number of unique skills required by each company. 
+Aim to quantify the unique skills required per company and identify which of these companies offer
+the highest average salary for positions necessitating at least one skill. 
+For entities without skill-related job postings, list it as a zero skill requirement and a null salary.
+Use CTEs to separately assess the unique skill count and the maximum average salary offered by these companies.
+*/
+
+
+WITH required_skills AS (
+  SELECT
+    companies.company_id,
+    COUNT(DISTINCT skills_to_job.skill_id) AS unique_skills_required
+  FROM
+    company_dim AS companies 
+  LEFT JOIN job_postings_fact as job_postings ON companies.company_id = job_postings.company_id
+  LEFT JOIN skills_job_dim as skills_to_job ON job_postings.job_id = skills_to_job.job_id
+  GROUP BY
+    companies.company_id
+),
+-- Gets the highest average yearly salary from the jobs that require at least one skills 
+max_salary AS (
+  SELECT
+    job_postings.company_id,
+    MAX(job_postings.salary_year_avg) AS highest_average_salary
+  FROM
+    job_postings_fact AS job_postings
+  WHERE
+    job_postings.job_id IN (SELECT job_id FROM skills_job_dim)
+  GROUP BY
+    job_postings.company_id
+)
+-- Joins 2 CTEs with table to get the query
+SELECT
+  companies.name,
+  required_skills.unique_skills_required as unique_skills_required, --handle companies w/o any skills required
+  max_salary.highest_average_salary
+FROM
+  company_dim AS companies
+LEFT JOIN required_skills ON companies.company_id = required_skills.company_id
+LEFT JOIN max_salary ON companies.company_id = max_salary.company_id
+ORDER BY
+	companies.name
+LIMIT 100;
+
+---------------------------------------------------------------
+/*
+
+Q2 
+
+
+Explore job postings by listing job id, job titles, company names, and their average salary rates,
+ while categorizing these salaries relative to the average in their respective countries. 
+ Include the month of the job posted date. Use CTEs, conditional logic, and date functions,
+  to compare individual salaries with national averages.
+*/
+
+
+WITH avg_salaries AS (
+    SELECT
+      -- company_id,
+        job_country,
+        AVG(salary_year_avg) AS national_avg
+    FROM
+        job_postings_fact
+    WHERE
+        salary_year_avg IS NOT NULL
+    GROUP BY
+        job_country
+)
+
+SELECT
+    job_id,
+    job_title,
+    company_dim.name,
+    EXTRACT(MONTH FROM job_posted_date) AS job_posted_month,
+    salary_year_avg,
+    CASE 
+        WHEN salary_year_avg < avg_salaries.national_avg THEN 'Lower'
+        WHEN salary_year_avg = avg_salaries.national_avg THEN 'Equal'
+        ELSE 'Higher'
+    END AS salalry_rate
+FROM
+    job_postings_fact
+    INNER JOIN company_dim ON job_postings_fact.company_id = company_dim.company_id
+    INNER JOIN avg_salaries ON avg_salaries.job_country = job_postings_fact.job_country
+
+--WHERE
+ --   job_postings_fact.salary_year_avg IS NOT NULL
+
+ORDER BY
+    job_posted_month DESC
+LIMIT 1000
+
+--------------------------------------------------------------------
+/*
+
+Q1
+
+
+Identify companies with the most diverse (unique) job titles. 
+Use a CTE to count the number of unique job titles per company,
+ then select companies with the highest diversity in job titles.
+*/
+
+
+WITH title_diversity AS (
+    SELECT
+        company_id,
+        COUNT(DISTINCT job_title) AS unique_titles
+    FROM job_postings_fact
+    GROUP BY company_id
+)
+
+SELECT
+    company_dim.name,
+    title_diversity.unique_titles
+FROM title_diversity
+    INNER JOIN company_dim ON title_diversity.company_id = company_dim.company_id
+ORDER BY
+    unique_titles DESC
+LIMIT 10;
+
+
+---------------------------------------------------------------------------
+--                       SUBQUERIES
+---------------------------------------------------------------------------
+
+/*
+
+Q3
+
+Find companies that offer an average salary above the overall average yearly salary of all job postings.
+Use subqueries to select companies with an average salary higher than the overall average salary 
+(which is another subquery).
+
+*/
+
+
+SELECT
+    company_dim.name
+FROM
+    company_dim
+    INNER JOIN (
+        --      AVERAGE SALARY PER COMPANY
+        SELECT
+            AVG(salary_year_avg) AS company_avg,
+            company_id
+        FROM
+            job_postings_fact
+        WHERE salary_year_avg  IS NOT NULL
+        GROUP BY
+            company_id
+    ) AS company_salaries ON company_dim.company_id = company_salaries.company_id
+WHERE
+    company_avg > (
+        SELECT
+            AVG(salary_year_avg) AS overall_avg_salary
+        FROM
+            job_postings_fact
+    )
+
+
+
+
+
+-------------------------------------------------------------------------
+/*
+
+Q2
+
+Determine the size category ('Small', 'Medium', or 'Large') for each company by first identifying the number 
+of job postings they have. 
+Use a subquery to calculate the total job postings per company. A company is considered 'Small' 
+if it has less than 10 job postings, 'Medium' if the number of job postings is between 10 and 50, and 'Large' 
+if it has more than 50 job postings. 
+Implement a subquery to aggregate job counts per company before classifying them based on size.
+
+*/
+
+SELECT   
+    company_name,
+    CASE 
+        WHEN jobs_count < 10 THEN 'Small Company'
+        WHEN jobs_count BETWEEN 10 AND 50 THEN 'Medium Company'
+        ELSE 'Large Company'
+    END AS size_category
+
+FROM(
+
+    SELECT 
+        COUNT(job_id) AS jobs_count,
+        company_dim.name AS company_name
+    FROM
+        job_postings_fact
+        LEFT JOIN company_dim ON job_postings_fact.company_id = company_dim.company_id
+    GROUP BY
+        company_dim.company_id
+)
+-- INNER JOIN company_dim ON jobs_count.company_id = company_dim.company_id
+
+LIMIT 10
+
+-----------------------------------------------
+
+/*
+
+Q1
+
+Identify the top 5 skills that are most frequently mentioned in job postings. 
+Use a subquery to find the skill IDs with the highest counts in the skills_job_dim table 
+and then join this result with the skills_dim table to get the skill names.
+*/
+
+SELECT skills, number_of_jobs 
+FROM skills_dim
+INNER JOIN ( 
+    SELECT 
+        skill_id,
+        COUNT(job_id) AS number_of_jobs
+    FROM 
+        skills_job_dim
+    GROUP BY
+        skill_id
+    LIMIT 100  ) 
+                        AS top_skills ON skills_dim.skill_id = top_skills.skill_id
+ORDER BY
+    number_of_jobs DESC
+LIMIT 10
+
+
+
+---------------------------------------------------------------------------
+--                       CASE STATEMENTS
+---------------------------------------------------------------------------
+
+/*
+
+Q3
+
+Write a query that lists all job postings with their job_id, salary_year_avg, and two additional columns
+ using CASE WHEN statements called: experience_level and remote_option. Use the job_postings_fact table.
+
+For experience_level, categorize jobs based on keywords found in their titles (job_title) as 
+'Senior', 'Lead/Manager', 'Junior/Entry', or 'Not Specified'.
+ Assume that certain keywords in job titles (like "Senior", "Manager", "Lead", "Junior", or "Entry") 
+ can indicate the level of experience required. ILIKE should be used in place of LIKE for this.
+
+NOTE: Use ILIKE in place of how you would normally use LIKE ; ILIKE is a command in SQL, specifically used in PostgreSQL.
+ It performs a case-insensitive search, similar to the LIKE command but without sensitivity to case.
+For remote_option, specify whether a job offers a remote option as either 'Yes' or 'No',
+ based on job_work_from_home column.
+
+*/
+
+SELECT 
+  job_id,
+  salary_year_avg,
+  CASE
+      WHEN job_title ILIKE '%Senior%' THEN 'Senior'
+      WHEN job_title ILIKE '%Manager%' OR job_title ILIKE '%Lead%' THEN 'Lead/Manager'
+      WHEN job_title ILIKE '%Junior%' OR job_title ILIKE '%Entry%' THEN 'Junior/Entry'
+      ELSE 'Not Specified'
+  END AS experience_level,
+  CASE
+      WHEN job_work_from_home THEN 'Yes'
+      ELSE 'No' 
+  END AS remote_option
+FROM 
+  job_postings_fact
+WHERE 
+  salary_year_avg IS NOT NULL 
+ORDER BY 
+  job_id;
+
+
+--------------------------------------------------------------
+/*
+
+Q2
+
+Count the number of unique companies that offer work from home (WFH) versus those requiring work to be on-site. 
+Use the job_postings_fact table to count and compare the distinct companies based on 
+their WFH policy (job_work_from_home).
+
+*/
+
+SELECT 
+    COUNT(DISTINCT CASE WHEN job_work_from_home = TRUE THEN company_id END) AS wfh_companies,
+    COUNT(DISTINCT CASE WHEN job_work_from_home = FALSE THEN company_id END) AS non_wfh_companies
+FROM job_postings_fact;
+
+--------------------------------------------------------------
+/*
+
+Q1
+
+From the job_postings_fact table, categorize the salaries from job postings that are data analyst jobs 
+and who have a yearly salary information. Put salary into 3 different categories:
+
+If the salary_year_avg is greater than $100,000 then return ‘high salary’.
+If the salary_year_avg is between $60,000 and $99,999 return ‘Standard salary’.
+If the salary_year_avg is below $60,000 return ‘Low salary’.
+Also order from the highest to lowest salaries.
+
+*/
+
+SELECT
+  job_id,
+  job_title,
+  salary_year_avg,
+  CASE 
+    WHEN salary_year_avg > 100000 THEN 'High salary'
+		WHEN salary_year_avg BETWEEN 60000 and 99999 THEN 'Standard salary'
+    WHEN salary_year_avg < 60000 THEN 'Low salary'
+  END AS salary_category
+FROM 
+	job_postings_fact
+WHERE
+    salary_year_avg IS NOT NULL
+    and job_title_short = 'Data Analyst'
+ORDER BY
+    salary_year_avg DESC;
+
+
+---------------------------------------------------------------------------
+--                       DATES FUNCTIONS
+---------------------------------------------------------------------------
+/*
+
+Q3
+
+Find companies (include company name) that have posted jobs offering health insurance, 
+where these postings were made in the second quarter of 2023. 
+Use date extraction to filter by quarter. And order by the job postings count from highest to lowest.
+
+*/
+
+SELECT
+    company_dim.name AS company_name,
+    COUNT(job_postings_fact.job_id) AS job_postings_count
+FROM
+    job_postings_fact
+	INNER JOIN
+    company_dim ON job_postings_fact.company_id = company_dim.company_id
+WHERE
+    job_postings_fact.job_health_insurance = TRUE
+    AND EXTRACT(QUARTER FROM job_postings_fact.job_posted_date) = 2 
+GROUP BY
+    company_dim.name 
+HAVING
+    COUNT(job_postings_fact.job_id) > 0
+ORDER BY
+	job_postings_count DESC; 
+
+    ---------------------------------------------------------------------------
+/*
+
+Q2
+
+Count the number of job postings for each month in 2023, 
+adjusting the job_posted_date to be in 'America/New_York' time zone before extracting the month. 
+Assume the job_posted_date is stored in UTC. Group by and order by the month.
+
+*/
+
+SELECT
+    EXTRACT(MONTH FROM job_posted_date AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York') AS month,
+    COUNT(*) AS postings_count
+FROM
+    job_postings_fact
+GROUP BY
+    month
+ORDER BY
+    month;
+
+        ---------------------------------------------------------------------------
+/*
+
+Q1
+
+Find the average salary both yearly (salary_year_avg) and hourly (salary_hour_avg) 
+for job postings using the job_postings_fact table that were posted after June 1, 2023.
+ Group the results by job schedule type. Order by the job_schedule_type in ascending order.
+
+*/
+
+SELECT
+    job_schedule_type,
+    AVG(salary_year_avg) AS avg_yearly_salary,
+    AVG(salary_hour_avg) AS avg_hourly_salary
+FROM
+    job_postings_fact
+WHERE
+    job_posted_date::date > '2023-06-01'
+GROUP BY
+    job_schedule_type
+ORDER BY
+    job_schedule_type;
+
+
+---------------------------------------------------------------------------
+--                       MAIPULATES TABLES
+---------------------------------------------------------------------------
+/*
+
+Q5
+
+Modify the remote column so that it defaults to FALSE in the data_science_job table .
+
+*/
+
+ALTER TABLE data_science_jobs 
+ALTER COLUMN remote SET DEFAULT FALSE
+INSERT INTO data_science_jobs (job_id, job_title, company_name, posted_on)
+VALUES
+(4, 'Data Scientist', 'Google', '2023-02-05');
+
+---------------------------------------------------------
+/*
+
+Q4
+
+Rename the post_date column to posted_on from the data_science_job table.
+
+*/
+
+ALTER TABLE data_science_jobs 
+RENAME COLUMN post_date TO posted_on;
+
+
+---------------------------------------------------------------------------
+--                       JOIN TABLES
+---------------------------------------------------------------------------
+/*
+
+Q3
+
+Identify the top skills required for jobs that offer remote work 
+and have an average yearly salary above $100,000.
+ Return the skill name (skills) and the number of job postings that mention each skill,
+  ordered by the number of job postings in descending order.
+
+*/
+
+SELECT 
+    skills_dim.skills,
+    COUNT(job_postings_fact.job_id) AS num_job_postings
+FROM 
+    job_postings_fact
+	INNER JOIN 
+	    skills_job_dim ON job_postings_fact.job_id = skills_job_dim.job_id
+	INNER JOIN 
+	    skills_dim ON skills_job_dim.skill_id = skills_dim.skill_id
+WHERE 
+    job_postings_fact.job_work_from_home = TRUE -- Remote work 
+    AND job_postings_fact.salary_year_avg > 100000
+GROUP BY 
+    skills_dim.skills
+ORDER BY 
+    num_job_postings DESC;
+
+---------------------------------------------------------------------------
+/*
+
+Q2
+
+Fetch all job postings, including their job_id, job_title and the names of the skills required (skills); 
+even if no skills are listed for a job. Ensure that the job is located in ‘New York’ and offers health insurance.
+ Use the job_postings_fact, skills_job_dim, and skills_dim tables. Order by job_id in descending order.
+
+*/
+
+SELECT 
+	job_postings_fact.job_id,
+	job_postings_fact.job_title, 
+	skills_dim.skills
+FROM 
+	job_postings_fact
+	LEFT JOIN skills_job_dim ON job_postings_fact.job_id = skills_job_dim.job_id
+	LEFT JOIN skills_dim ON skills_job_dim.skill_id = skills_dim.skill_id
+WHERE 
+	job_postings_fact.job_location = 'New York' 
+	AND job_postings_fact.job_health_insurance = TRUE
+ORDER BY job_postings_fact.job_id DESC;
+
+
+---------------------------------------------------------------------------
+/*
+
+Q1
+
+Retrieve a list of job titles (job_title from the job_posting_fact table) with their corresponding company names 
+(name from the company_dim table). Also, get the job_id, job_location, and job_posted_date. 
+Only return job postings that have the ‘Data Scientist' as the job title (job_title_short). 
+Order by the job posted date in descending order.
+
+*/
+
+SELECT 
+    job_postings_fact.job_id,
+    job_postings_fact.job_title, 
+    company_dim.name,
+    job_postings_fact.job_location,
+    job_postings_fact.job_posted_date
+FROM 
+    job_postings_fact 
+INNER JOIN company_dim ON job_postings_fact.company_id = company_dim.company_id
+WHERE 
+    job_postings_fact.job_title_short = 'Data Scientist'
+ORDER BY    
+    job_postings_fact.job_posted_date DESC;
+
+    
