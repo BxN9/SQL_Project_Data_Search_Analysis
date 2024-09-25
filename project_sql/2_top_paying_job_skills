@@ -1,0 +1,74 @@
+--------------------------------------------------------------------------------
+-- 2 - What are the top-paying data analyst jobs, and what skills are required?
+--------------------------------------------------------------------------------
+/*
+GOALS : 
+- Identify the top highest-paying Data Analyst jobs and the specific skills required for these roles.
+- Provide a detailed look at which high-paying jobs demand certain skills, helping me understand which skills to develop that align with top salaries
+*/
+
+WITH top_paying_jobs AS (
+SELECT
+    job_id,
+    job_title,
+    salary_year_avg,
+    salary_hour_avg,
+    company_dim.name AS company_name
+FROM
+    job_postings_fact
+    LEFT JOIN company_dim ON company_dim.company_id = job_postings_fact.company_id
+WHERE
+    job_title_short = 'Data Analyst'  AND 
+    (job_location LIKE '%Montreal%' OR job_location = 'Anywhere') AND
+    salary_year_avg IS NOT NULL
+ORDER BY
+    salary_year_avg DESC
+LIMIT 10
+)
+SELECT 
+    top_paying_jobs.*,
+    skills_dim.skills
+FROM top_paying_jobs
+INNER JOIN skills_job_dim ON top_paying_jobs.job_id = skills_job_dim.job_id
+INNER JOIN skills_dim ON skills_dim.skill_id = skills_job_dim.skill_id
+ORDER BY
+    salary_year_avg DESC
+
+/*
+Here are the top insights from the skills required in the highest-paying data analyst roles for 2023:
+
+SQL is the most frequently required skill, mentioned in 8 roles.
+Python follows closely, required in 7 roles.
+Tableau, a popular data visualization tool, is needed in 6 roles.
+R, a language for statistical computing, appears in 4 roles.
+Other notable tools include Snowflake, Pandas, and Excel, each appearing in 3 roles.
+These insights suggest that expertise in SQL and Python is highly valued,
+ with additional demand for data visualization (Tableau) 
+ and data engineering tools (Snowflake). ​
+
+--
+
+Here is the Python code used to generate the bar chart:
+
+```python
+import matplotlib.pyplot as plt
+
+# Create a bar plot to visualize the top skills and their frequency
+plt.figure(figsize=(10, 6))
+skills_series.plot(kind='bar', color='skyblue')
+
+# Add titles and labels
+plt.title('Top Skills Required in Top Paying Data Analyst Roles (2023)', fontsize=14)
+plt.xlabel('Skills', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+
+# Rotate x-axis labels for better readability
+plt.xticks(rotation=45, ha='right')
+
+# Show the plot
+plt.tight_layout()
+plt.show()
+```
+
+You can use this code to recreate the chart, or modify it further for any other visualizations.
+ */
