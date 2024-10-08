@@ -118,9 +118,9 @@ Here is the breakdown of the most demanded skills for Data analyst positions in 
 | Tableau  | 46,554       |
 | Power BI | 39,468       |
 
-SQL stands out as the top skill.
-Excel remains essential.
-Python is a powerful tool to master.
+SQL stands out as the top skill.  
+Excel remains essential.  
+Python is a powerful tool to master.  
 Familiarity with a visualization tool like Tableau or Power BI is also crucial.
 
 
